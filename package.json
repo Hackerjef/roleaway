@@ -1,0 +1,16 @@
+{
+  "name": "roleaway",
+  "version": "1.0.0",
+  "main": "index.js",
+  "repository": "https://github.com/Hackerjef/roleaway.git",
+  "author": "Nadie <hackerjef@users.noreply.github.com>",
+  "license": "UNLICENSE",
+  "private": true,
+  "dependencies": {
+    "eris": "^0.15.1",
+    "eris-additions": "^1.4.1",
+    "eris-components": "^1.0.1",
+    "sequelize": "^6.6.5",
+    "sqlite3": "^5.0.2"
+  }
+}
