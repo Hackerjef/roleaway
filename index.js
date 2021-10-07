@@ -19,10 +19,14 @@ if (cfg.token) {
     process.exit(1);
 }
 
-
 // eslint-disable-next-line no-unused-vars
 const client = ErisComponents.Client(bot, { debug: true, invalidClientInstanceError: true, ignoreRequestErrors: false });
 
+
+
+//
+//             DB models
+//
 
 const Guild = sequelize.define("Guild", {
     // Model attributes are defined here
@@ -46,6 +50,17 @@ const Guild = sequelize.define("Guild", {
         set(value){
             this.setDataValue("required_perms", JSON.stringify(value));
         }
+    },
+    default_embed: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        defaultValue: null,
+        get() {
+            return JSON.parse(this.getDataValue("default_embed"));
+        },
+        set(value) {
+            this.setDataValue("default_embed", JSON.stringify(value));
+        }
     }
 }, {
     timestamps: false,
@@ -53,6 +68,7 @@ const Guild = sequelize.define("Guild", {
     updatedAt: false,
 });
 
+// eslint-disable-next-line no-unused-vars
 const Embeds = sequelize.define("Embeds", {
     // Model attributes are defined here
     mid: {
@@ -89,7 +105,19 @@ const Embeds = sequelize.define("Embeds", {
 });
 
 
-//check perm ;)  this.requirements.custom
+const get_guild = async function (gid) {
+    var [guild, created] = await Guild.findOrCreate({ where: { gid: gid }, defaults: { gid: gid } });
+
+    if (created) {
+        console.log(`Created guild table for - ${gid}`);
+    }
+    return guild;
+};
+
+
+//
+//              Perm checks
+//
 const isowner = function(msg) {
     if (cfg.owners.includes(msg.author.id)) {
         return true;
@@ -107,11 +135,7 @@ const checkdbperm = async function (msg) {
         return false;
     }
 
-    var [guild, created] = await Guild.findOrCreate({ where: { gid: msg.guildID }, defaults: { gid: msg.guildID } });
-    
-    if (created) {
-        console.log(`Created guild table for - ${msg.guildID}`);
-    }
+    var guild = await get_guild(msg.guildID);
 
     // can't do every/foreach, needs to be in the same name space
     for (var counter = 0; counter < guild.get("required_perms").length; counter++) {
@@ -122,14 +146,52 @@ const checkdbperm = async function (msg) {
     return false;
 };
 
+//
+//              pub-permed commands
+//
+bot.registerCommand("prefix", async function(msg, args) {
+    if (args.length > 1) {
+        return "Too many args given, can be nothing or a prefix (`! ? uwu! rawrxd!`)";
+    }
+    var guild = await get_guild(msg.guildID);
 
+    if (args.length === 0) {
+        var gprefix = null;
+        if (!guild.prefix) {
+            gprefix = cfg.prefix.join(", ");
+        } else {
+            gprefix = guild.prefix;
+        }
+        return `Current prefix(s): ${gprefix}`;
+    }
+    
+    if (args[0] === "reset") {
+        guild.prefix = null;
+        guild.save();
+        bot.registerGuildPrefix(guild.gid, cfg.prefix);
+        return `Prefix have been reset: ${cfg.prefix.join(", ")}`;
+    }
+
+    bot.registerGuildPrefix(guild.gid, args[0]);
+    guild.prefix = args[0];
+    guild.save();
+    return `Prefix set! \`${guild.prefix}\``;
+
+}, { requirements: { custom: checkdbperm } });
+
+
+
+//
+//              Inner bot commands
+//
 bot.registerCommand("ping", "pong!", { requirements: { custom: checkdbperm }});
 
-const codeInBlock = /^```(?:js)?\s(.+[^\\])```$/is;
+// eslint-disable-next-line no-unused-vars
 bot.registerCommand("eval", async function(msg, args) {
     if (!cfg.owners.includes(msg.author.id)) {
         return;
     } else {
+        let codeInBlock = /^```(?:js)?\s(.+[^\\])```$/is;
         let code = msg.content.replace(msg.prefix +"eval", "").trim();
         let editable = null;
 
@@ -177,8 +239,8 @@ bot.registerCommand("eval", async function(msg, args) {
         let embed = {};
         embed["fields"] = [];
 
-        embed["title"] = "Discord Eval:"
-        embed["description"] = `**Classe** : \`\`${classe}\`\`\n` + `**Type** : \`${typeof out}\``
+        embed["title"] = "Discord Eval:";
+        embed["description"] = `**Classe** : \`\`${classe}\`\`\n` + `**Type** : \`${typeof out}\``;
 
         embed["fields"].push({
             "name": "Code ↓",
@@ -187,6 +249,14 @@ bot.registerCommand("eval", async function(msg, args) {
         });
 
         if (editable) await editable.edit(embed);
+
+
+        if (!`${out}`.includes("Error")) {
+            msg.addReaction("✅");
+        } else {
+            msg.addReaction("❌");
+        }
+
 
         if (code.includes("return") || `${out}`.includes("Error")) {
             let embed = {};
@@ -203,6 +273,13 @@ bot.on("ready", () => {
     console.log(`Connected with user: ${bot.user.username}#${bot.user.discriminator} (${bot.user.id})` );
     console.log(`"https://discord.com/api/oauth2/authorize?client_id=${bot.application.id}&permissions=68608&scope=bot"`);
 });
+
+bot.on("error", (err) => {
+    console.error(err);
+});
+
+
+
 
 
 // reg prefix & put embeds into mem
