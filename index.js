@@ -87,17 +87,26 @@ const client = ErisComponents.Client(bot, { debug: true, invalidClientInstanceEr
 
 //check perm ;)  this.requirements.custom
 const checkdbperm = async function (msg) {
+    if (cfg.owners.includes(msg.author.id)) {
+        return true;
+    }
+    
     if (!msg.guildID) {
         return false;
     }
 
-    //TODO: Do check
-    //var guild = (await Guild.findOrCreate({ where: { gid: msg.guildID }, defaults: { gid: msg.guildID } }));
-    // console.log(guild);
-    // for (var perm in guild.get("required_perms")) {
-    //     console.log(perm);
-    //     if (msg.member.hasPermission(perm)) return true;
-    // }
+    var [guild, created] = await Guild.findOrCreate({ where: { gid: msg.guildID }, defaults: { gid: msg.guildID } });
+    
+    if (created) {
+        console.log(`Created guild table for - ${msg.guildID}`);
+    }
+
+    // can't do every/foreach, needs to be in the same name space
+    for (var counter = 0; counter < guild.get("required_perms").length; counter++) {
+        if (msg.member.permissions.has(guild.get("required_perms")[counter].toLowerCase())) {
+            return true;
+        }
+    }
     return false;
 };
 
@@ -115,12 +124,14 @@ bot.on("ready", () => {
 // reg prefix & put embeds into mem
 (async () => {
     // sync db
-    await sequelize.sync({ force: true });
+    await sequelize.sync({ force: false });
 
     //guild prefix
     var guilds = await Guild.findAll();
     guilds.every(guild => {
-        bot.registerGuildPrefix(guild.gid, guild.prefix);
+        if (guild.prefix) {
+            bot.registerGuildPrefix(guild.gid, guild.prefix);
+        }
     });
 
     //finish it up
