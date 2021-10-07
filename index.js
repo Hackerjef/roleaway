@@ -1,6 +1,7 @@
 const cfg = require("./cfg.json");
 
 const Eris = require("eris");
+const prettify = require("ghom-prettify");
 const ErisComponents = require("eris-components");
 const { Sequelize, DataTypes } = require("sequelize");
 
@@ -8,6 +9,20 @@ const sequelize = new Sequelize({
     dialect: "sqlite",
     storage: "./db.sqlite"
 });
+
+var bot;
+
+if (cfg.token) {
+    bot = new Eris.CommandClient(`Bot ${cfg.token}`, {}, { ignoreBots: true, prefix: cfg.prefix, defaultHelpCommand: false });
+} else {
+    console.log("No token Found");
+    process.exit(1);
+}
+
+
+// eslint-disable-next-line no-unused-vars
+const client = ErisComponents.Client(bot, { debug: true, invalidClientInstanceError: true, ignoreRequestErrors: false });
+
 
 const Guild = sequelize.define("Guild", {
     // Model attributes are defined here
@@ -73,21 +88,18 @@ const Embeds = sequelize.define("Embeds", {
     updatedAt: false,
 });
 
-var bot;
-
-if (cfg.token) {
-    bot = new Eris.CommandClient(`Bot ${cfg.token}`, {}, { ignoreBots: true, prefix: cfg.prefix });
-} else {
-    console.log("No token Found");
-    process.exit(1);
-}
-
-// eslint-disable-next-line no-unused-vars
-const client = ErisComponents.Client(bot, { debug: true, invalidClientInstanceError: true, ignoreRequestErrors: false });
 
 //check perm ;)  this.requirements.custom
-const checkdbperm = async function (msg) {
+const isowner = function(msg) {
     if (cfg.owners.includes(msg.author.id)) {
+        return true;
+    } else {
+        return false;
+    }
+};
+
+const checkdbperm = async function (msg) {
+    if (isowner(msg)) {
         return true;
     }
     
@@ -113,6 +125,78 @@ const checkdbperm = async function (msg) {
 
 bot.registerCommand("ping", "pong!", { requirements: { custom: checkdbperm }});
 
+const codeInBlock = /^```(?:js)?\s(.+[^\\])```$/is;
+bot.registerCommand("eval", async function(msg, args) {
+    if (!cfg.owners.includes(msg.author.id)) {
+        return;
+    } else {
+        let code = msg.content.replace(msg.prefix +"eval", "").trim();
+        let editable = null;
+
+        code = code.trim();
+        if (codeInBlock.test(code)) {
+            code = code.replace(codeInBlock, "$1");
+        }
+
+        if (code.includes("resolve") && !code.includes("new Promise")) {
+            code = `return await new Promise(resolve => {${code})`;
+        }
+
+        if (code.includes("await")) {
+            code = `async () => {${code}}`;
+
+            let embed = {};
+            embed["title"] = "Discord Eval:";
+            embed["description"] = "Running eval";
+
+            editable = await bot.createMessage(msg.channel.id, { embed });
+            await msg.channel.sendTyping();
+
+        } else {
+            code = `() => {${code}}`;
+        }
+
+        let out = null;
+        try {
+            out = await eval(code)();
+        } catch (err) {
+            out = err;
+        }
+
+        let classe = "void";
+        if (out !== undefined && out !== null) {
+            classe = out.constructor.name;
+        }
+
+        let formatted = code;
+        try {
+            formatted = await prettify(code, "js");
+        // eslint-disable-next-line no-empty
+        } catch (err) { }
+
+        let embed = {};
+        embed["fields"] = [];
+
+        embed["title"] = "Discord Eval:"
+        embed["description"] = `**Classe** : \`\`${classe}\`\`\n` + `**Type** : \`${typeof out}\``
+
+        embed["fields"].push({
+            "name": "Code ↓",
+            "value": `\`\`\`js\n${formatted.length > 0 ? formatted : "void"}`.slice(0, 800) + "\n```",
+            "inline": false
+        });
+
+        if (editable) await editable.edit(embed);
+
+        if (code.includes("return") || `${out}`.includes("Error")) {
+            let embed = {};
+            embed["title"] = "Return ↓";
+            embed["description"] = `\`\`\`js\n${`${out}`.length > 0 ? `${out}` : "void"}`.slice(0, 1800) + "\n```";
+
+            await bot.createMessage(msg.channel.id, { embed });
+        }
+    }
+}, { requirements: { custom: isowner } });
 
 
 bot.on("ready", () => {

@@ -9,6 +9,7 @@
   "dependencies": {
     "eris": "^0.15.1",
     "eris-components": "^1.0.1",
+    "ghom-prettify": "^2.0.1",
     "sequelize": "^6.6.5",
     "sqlite3": "^5.0.2"
   }
