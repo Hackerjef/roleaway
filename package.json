@@ -7,9 +7,12 @@
   "license": "UNLICENSE",
   "private": true,
   "dependencies": {
+    "axios": "^0.22.0",
     "eris": "^0.15.1",
     "eris-components": "^1.0.1",
+    "eris-reactions": "^0.1.4",
     "ghom-prettify": "^2.0.1",
+    "joi": "^17.4.2",
     "sequelize": "^6.6.5",
     "sqlite3": "^5.0.2"
   }

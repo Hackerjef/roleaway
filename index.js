@@ -1,8 +1,37 @@
-const cfg = require("./cfg.json");
 
+var cfg;
+try {
+    var cfail = false;
+    cfg = require("./cfg.json");
+} catch (e) {
+    var fs = require("fs");
+    if (e.code === "MODULE_NOT_FOUND") {
+        console.log("Config Not found, Generating new one");
+        cfail = true;
+        cfg = {};
+        cfg["token"] = "<Fill in token>";
+        cfg["prefixes"] = ["ra!", "@mention"];
+        cfg["owners"] =  [];
+        fs.writeFile("cfg.json", JSON.stringify(cfg, null, 4)); 
+    } else {
+        console.error(e);
+    }
+} finally {
+    if (cfg.token === "<Fill in token>" || cfg.owners.length === 0) {
+        if (!cfail) {
+            console.log("Config file is missing a token and/or the owners array is empty");
+        }
+        process.exit(1);
+    }
+}
+
+const Joi = require("joi");
 const Eris = require("eris");
-const prettify = require("ghom-prettify");
 const ErisComponents = require("eris-components");
+const ReactionHandler = require("eris-reactions");
+const prettify = require("ghom-prettify");
+const embedvalidation = require("./embedvalidation");
+const axio = require("axios");
 const { Sequelize, DataTypes } = require("sequelize");
 
 const sequelize = new Sequelize({
@@ -13,7 +42,7 @@ const sequelize = new Sequelize({
 var bot;
 
 if (cfg.token) {
-    bot = new Eris.CommandClient(`Bot ${cfg.token}`, {}, { ignoreBots: true, prefix: cfg.prefix, defaultHelpCommand: false });
+    bot = new Eris.CommandClient(`Bot ${cfg.token}`, {}, { ignoreBots: true, prefix: cfg.prefixs, defaultHelpCommand: false });
 } else {
     console.log("No token Found");
     process.exit(1);
@@ -114,6 +143,47 @@ const get_guild = async function (gid) {
     return guild;
 };
 
+const embed_getter = async function(msg) {
+    if (!msg.attachments > 0) {
+        await bot.createMessage(msg.channel.id, `Could not find embed attached with this command\nUpload the file and in the comment do \`${msg.prefix + "setembed"}\` to upload the file with the command`);
+        return false;
+    }
+
+    var response;
+    try {
+        response = await axio.get(msg.attachments[0].url);
+    } catch (e) {
+        console.error(e);
+        await bot.createMessage(msg.channel.id, "Ran into error with download json from discord");
+        return false;
+    }
+
+    var embed;
+    try {
+        embed = await embedvalidation.validateAsync(response.data.embed, { abortEarly: false });
+    } catch (e) {
+        if (e instanceof Joi.ValidationError) {
+            let embed = {};
+            embed["title"] = "Embed validation failed:";
+            embed["color"] = 16776960;
+
+            var errors = [];
+            for (var counter = 0; counter < e.details.length; counter++) {
+                errors.push(e.details[counter].message);
+            }
+            embed["description"] = errors.join("\n");
+            await bot.createMessage(msg.channel.id, { embed });
+            return false;
+        } else {
+            console.error(e);
+            await bot.createMessage(msg.channel.id, "Internal error when trying to verify embed - check console");
+            return false;
+        }
+    }
+    return embed;
+};
+
+
 
 //
 //              Perm checks
@@ -146,9 +216,6 @@ const checkdbperm = async function (msg) {
     return false;
 };
 
-//
-//              pub-permed commands
-//
 bot.registerCommand("prefix", async function(msg, args) {
     if (args.length > 1) {
         return "Too many args given, can be nothing or a prefix (`! ? uwu! rawrxd!`)";
@@ -158,7 +225,7 @@ bot.registerCommand("prefix", async function(msg, args) {
     if (args.length === 0) {
         var gprefix = null;
         if (!guild.prefix) {
-            gprefix = cfg.prefix.join(", ");
+            gprefix = cfg.prefixs.join(", ");
         } else {
             gprefix = guild.prefix;
         }
@@ -168,8 +235,8 @@ bot.registerCommand("prefix", async function(msg, args) {
     if (args[0] === "reset") {
         guild.prefix = null;
         guild.save();
-        bot.registerGuildPrefix(guild.gid, cfg.prefix);
-        return `Prefix have been reset: ${cfg.prefix.join(", ")}`;
+        bot.registerGuildPrefix(guild.gid, cfg.prefixs);
+        return `Prefix have been reset: ${cfg.prefixs.join(", ")}`;
     }
 
     bot.registerGuildPrefix(guild.gid, args[0]);
@@ -181,9 +248,32 @@ bot.registerCommand("prefix", async function(msg, args) {
 
 
 
-//
-//              Inner bot commands
-//
+// eslint-disable-next-line no-unused-vars
+bot.registerCommand("setdefaultembed", async function(msg, args) {
+    var embed = await embed_getter(msg);
+    if (!embed) return;
+
+    var embedcheck = await bot.createMessage(msg.channel.id, { content: "React to accept embed :)", embed: embed });
+    await embedcheck.addReaction("✅");
+    await embedcheck.addReaction("❌");
+    var reactions = await ReactionHandler.collectReactions(embedcheck,
+        (userID) => userID === msg.author.id,
+        { maxMatches: 1, time: 60000 }
+    );
+
+    if (reactions[0].name === "✅") {
+        var guild = await get_guild(msg.guildID);
+        guild.default_embed = embed;
+        guild.save();
+        await bot.createMessage(msg.channel.id, "Embed has been saved");
+    } else {
+        await bot.createMessage(msg.channel.id, "Embed has not been saved");
+    }
+    await embedcheck.delete();
+}, { requirements: { custom: checkdbperm } });
+
+
+
 bot.registerCommand("ping", "pong!", { requirements: { custom: checkdbperm }});
 
 // eslint-disable-next-line no-unused-vars
@@ -233,6 +323,7 @@ bot.registerCommand("eval", async function(msg, args) {
         let formatted = code;
         try {
             formatted = await prettify(code, "js");
+
         // eslint-disable-next-line no-empty
         } catch (err) { }
 
@@ -277,10 +368,6 @@ bot.on("ready", () => {
 bot.on("error", (err) => {
     console.error(err);
 });
-
-
-
-
 
 // reg prefix & put embeds into mem
 (async () => {
