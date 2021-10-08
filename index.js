@@ -30,8 +30,9 @@ const Eris = require("eris");
 const ErisComponents = require("eris-components");
 const ReactionHandler = require("eris-reactions");
 const prettify = require("ghom-prettify");
-const embedvalidation = require("./embedvalidation");
+const embedvalidation = require("./src/embedvalidation");
 const axio = require("axios");
+const Promise = require("promise");
 const { Sequelize, DataTypes } = require("sequelize");
 
 const sequelize = new Sequelize({
@@ -143,6 +144,35 @@ const get_guild = async function (gid) {
     return guild;
 };
 
+const accept_deny_q = async function(msg, user, timeout) {
+    await msg.addReaction("✅");
+    await msg.addReaction("❌");
+
+    // eslint-disable-next-line no-unused-vars
+    return await new Promise((resolve, rejects) => {
+        var reactionListener = new ReactionHandler.continuousReactionStream(
+            msg,
+            (userID) => userID === user.id,
+            false,
+            { maxMatches: 900, time: timeout }
+        );
+
+        reactionListener.on("reacted", (event) => {
+            if (event.emoji.name === "✅") {
+                reactionListener.stopListening(null);
+                resolve(true);
+            } else if (event.emoji.name === "❌") {
+                reactionListener.stopListening(null);
+                resolve(false);
+
+            }
+            console.log(event);
+        });
+
+    });
+};
+
+
 const embed_getter = async function(msg) {
     if (!msg.attachments > 0) {
         await bot.createMessage(msg.channel.id, `Could not find embed attached with this command\nUpload the file and in the comment do \`${msg.prefix + "setembed"}\` to upload the file with the command`);
@@ -252,16 +282,9 @@ bot.registerCommand("prefix", async function(msg, args) {
 bot.registerCommand("setdefaultembed", async function(msg, args) {
     var embed = await embed_getter(msg);
     if (!embed) return;
-
     var embedcheck = await bot.createMessage(msg.channel.id, { content: "React to accept embed :)", embed: embed });
-    await embedcheck.addReaction("✅");
-    await embedcheck.addReaction("❌");
-    var reactions = await ReactionHandler.collectReactions(embedcheck,
-        (userID) => userID === msg.author.id,
-        { maxMatches: 1, time: 60000 }
-    );
-
-    if (reactions[0].name === "✅") {
+    var answer = await accept_deny_q(embedcheck, msg.author, 60000);
+    if (answer) {
         var guild = await get_guild(msg.guildID);
         guild.default_embed = embed;
         guild.save();
