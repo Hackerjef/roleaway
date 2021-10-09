@@ -34,6 +34,7 @@ const embedvalidation = require("./src/embedvalidation");
 const axio = require("axios");
 const Promise = require("promise");
 const { Sequelize, DataTypes } = require("sequelize");
+const { v4: uuidv4 } = require("uuid");
 
 const sequelize = new Sequelize({
     dialect: "sqlite",
@@ -70,6 +71,16 @@ const Guild = sequelize.define("Guild", {
         allowNull: true,
         defaultValue: null
     },
+    rid: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        defaultValue: null
+    },
+    cid: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        defaultValue: null
+    },
     required_perms: {
         type: DataTypes.STRING,
         allowNull: false,
@@ -98,13 +109,22 @@ const Guild = sequelize.define("Guild", {
     updatedAt: false,
 });
 
-// eslint-disable-next-line no-unused-vars
 const Embeds = sequelize.define("Embeds", {
     // Model attributes are defined here
+    id: {
+        type: DataTypes.UUIDV4,
+        allowNull: false,
+        defaultValue: uuidv4(),
+        primaryKey: true
+    },
+    gid: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
     mid: {
         type: DataTypes.STRING,
-        allowNull: false,
-        primaryKey: true
+        allowNull: true,
+        defaultValue: null,
     },
     cid: {
         type: DataTypes.STRING,
@@ -145,8 +165,10 @@ const get_guild = async function (gid) {
 };
 
 const accept_deny_q = async function(msg, user, timeout) {
-    await msg.addReaction("✅");
-    await msg.addReaction("❌");
+    // eslint-disable-next-line no-unused-vars
+    await msg.addReaction("✅").catch(err => {});
+    // eslint-disable-next-line no-unused-vars
+    await msg.addReaction("❌").catch(err => { });
 
     // eslint-disable-next-line no-unused-vars
     return await new Promise((resolve, rejects) => {
@@ -173,12 +195,7 @@ const accept_deny_q = async function(msg, user, timeout) {
 };
 
 
-const embed_getter = async function(msg) {
-    if (!msg.attachments > 0) {
-        await bot.createMessage(msg.channel.id, `Could not find embed attached with this command\nUpload the file and in the comment do \`${msg.prefix + "setembed"}\` to upload the file with the command`);
-        return false;
-    }
-
+const get_embed_attachment = async function(msg) {
     var response;
     try {
         response = await axio.get(msg.attachments[0].url);
@@ -188,9 +205,17 @@ const embed_getter = async function(msg) {
         return false;
     }
 
+    var data;
+    if (Object.prototype.hasOwnProperty.call(response.data, "embed")) {
+        data = response.data.embed;
+    } else {
+        data = response.data;
+    }
+
+
     var embed;
     try {
-        embed = await embedvalidation.validateAsync(response.data.embed, { abortEarly: false });
+        embed = await embedvalidation.validateAsync(data, { abortEarly: false });
     } catch (e) {
         if (e instanceof Joi.ValidationError) {
             let embed = {};
@@ -246,9 +271,31 @@ const checkdbperm = async function (msg) {
     return false;
 };
 
+//
+//              Boi what the fuck I hate intergrations
+//
+client.on("interactionCreate", (resBody) => {
+    console.log(resBody);
+    var uuid_dirty = resBody.data.custom_id.match("GR_(.*)");
+    if (!uuid_dirty == 2) return client.replyInteraction(resBody, null, "Cannot give role | UUID does not match");
+    var dbe;
+    try {
+        dbe = Embeds.findByPk(uuid_dirty[1]);
+    } catch (e) {
+        return client.replyInteraction(resBody, null, "Cannot give role | UUID not found");
+    }
+
+    // TODO: give role :)
+
+
+    client.replyInteraction(resBody, null, "Role has been assigned :)");
+});
+
+
+
 bot.registerCommand("prefix", async function(msg, args) {
     if (args.length > 1) {
-        return "Too many args given, can be nothing or a prefix (`! ? uwu! rawrxd!`)";
+        return "Too many args given, can be nothing or a prefix";
     }
     var guild = await get_guild(msg.guildID);
 
@@ -279,9 +326,13 @@ bot.registerCommand("prefix", async function(msg, args) {
 
 
 // eslint-disable-next-line no-unused-vars
-bot.registerCommand("setdefaultembed", async function(msg, args) {
-    var embed = await embed_getter(msg);
+bot.registerCommand("set_dembed", async function(msg, args) {
+    if (!msg.attachments > 0) {
+        return `Could not find embed attached with this command\nUpload the file and in the comment do \`${msg.prefix + "setembed"}\` to upload the file with the command`;
+    }
+    var embed = await get_embed_attachment(msg);
     if (!embed) return;
+
     var embedcheck = await bot.createMessage(msg.channel.id, { content: "React to accept embed :)", embed: embed });
     var answer = await accept_deny_q(embedcheck, msg.author, 60000);
     if (answer) {
@@ -295,6 +346,63 @@ bot.registerCommand("setdefaultembed", async function(msg, args) {
     await embedcheck.delete();
 }, { requirements: { custom: checkdbperm } });
 
+
+
+//<p> rid
+bot.registerCommand("set_role", async function(msg, args) {
+    if (!args.length > 0) return `Role not given, \`${msg.prefix}set_role rid`;
+    if (!msg.channel.guild.roles.has(args[0])) return "Role does not exist in this guild";
+    var guild = await get_guild(msg.guildID);
+    guild.rid = args[0];
+    guild.save();
+    return `Role has been set to: \`${args[0]}\``;
+});
+
+bot.registerCommand("set_channel", async function (msg, args) {
+    if (!args.length > 0) return `channel not given, \`${msg.prefix}set_channel cid`;
+    if (!msg.channel.guild.channels.has(args[0])) return "channel does not exist in this guild";
+    var guild = await get_guild(msg.guildID);
+    guild.cid = args[0];
+    guild.save();
+    return `channel has been set to: \`${args[0]}\``;
+});
+
+
+
+//<p> count
+// eslint-disable-next-line no-unused-vars
+bot.registerCommand("post", async function(msg, args) {
+    if (args.length > 1 || args.length < 1) return `unspecified args given: \`${msg.prefix}post count\``;
+    
+    var guild = await get_guild(msg.guildID);
+
+    if (!guild.rid) return `Role has not been set, set it using ${msg.prefix}set_role roleid`;
+    if (!guild.cid) return `Channel has not been set, set it using ${msg.prefix}set_channel cid`;
+
+    //check if embed was given or have a default
+    var embed;
+    if (msg.attachments > 1) {
+        embed = await get_embed_attachment(msg);
+    } else if (guild.default_embed) {
+        embed = guild.default_embed;
+    } else {
+        return `No embed set (default or given as a attachment) Please set a default (${msg.prefix}set_dembed) or attach json of an embed of command`;
+    }
+
+    var mcount = parseInt(args[0]);
+    if (isNaN(mcount)) return "arg is not a number, please give a number to set the amount of roles to give out";
+     
+    var edb = await Embeds.create({ mid: null, gid: guild.gid, cid: guild.cid, rid: guild.rid, role_count: 0, role_max: mcount, enabled: true });
+
+    var Button = new ErisComponents.Button()
+        .setLabel("Click me for role!")
+        .setID(`GR_${edb.id}`)
+        .setStyle("blurple");
+
+    var fmsg = await client.sendComponents(guild.cid, Button, { embed: embed }, );
+    edb.mid = fmsg.id;
+    edb.save();
+}, { requirements: { custom: checkdbperm } });
 
 
 bot.registerCommand("ping", "pong!", { requirements: { custom: checkdbperm }});
