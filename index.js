@@ -44,7 +44,8 @@ const sequelize = new Sequelize({
 var bot;
 
 if (cfg.token) {
-    bot = new Eris.CommandClient(`Bot ${cfg.token}`, {}, { ignoreBots: true, prefix: cfg.prefixs, defaultHelpCommand: false });
+    // getallnewusers
+    bot = new Eris.CommandClient(`Bot ${cfg.token}`, { intents: 1819, getAllUsers: true, messageLimit: 10 }, { ignoreBots: true, prefix: cfg.prefixs, defaultHelpCommand: false });
 } else {
     console.log("No token Found");
     process.exit(1);
@@ -52,8 +53,6 @@ if (cfg.token) {
 
 // eslint-disable-next-line no-unused-vars
 const client = ErisComponents.Client(bot, { debug: true, invalidClientInstanceError: true, ignoreRequestErrors: false });
-
-
 
 //
 //             DB models
@@ -90,6 +89,17 @@ const Guild = sequelize.define("Guild", {
         },
         set(value){
             this.setDataValue("required_perms", JSON.stringify(value));
+        }
+    },
+    finish_embed: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        defaultValue: JSON.stringify({ "title": "Last role has been given out!", "color": 15406156 }),
+        get() {
+            return JSON.parse(this.getDataValue("finish_embed"));
+        },
+        set(value) {
+            this.setDataValue("finish_embed", JSON.stringify(value));
         }
     },
     default_embed: {
@@ -143,6 +153,16 @@ const Embeds = sequelize.define("Embeds", {
         type: DataTypes.STRING,
         allowNull: false
     },
+    embed: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        get() {
+            return JSON.parse(this.getDataValue("embed"));
+        },
+        set(value) {
+            this.setDataValue("embed", JSON.stringify(value));
+        }
+    },
     enabled: {
         type: DataTypes.BOOLEAN,
         allowNull: false,
@@ -168,7 +188,7 @@ const accept_deny_q = async function(msg, user, timeout) {
     // eslint-disable-next-line no-unused-vars
     await msg.addReaction("✅").catch(err => {});
     // eslint-disable-next-line no-unused-vars
-    await msg.addReaction("❌").catch(err => { });
+    msg.addReaction("❌").catch(err => { });
 
     // eslint-disable-next-line no-unused-vars
     return await new Promise((resolve, rejects) => {
@@ -214,19 +234,20 @@ const get_embed_attachment = async function(msg) {
 
 
     var embed;
+    var badembed;
     try {
         embed = await embedvalidation.validateAsync(data, { abortEarly: false });
     } catch (e) {
         if (e instanceof Joi.ValidationError) {
-            let embed = {};
-            embed["title"] = "Embed validation failed:";
-            embed["color"] = 16776960;
+            badembed = {};
+            badembed["title"] = "Embed validation failed:";
+            badembed["color"] = 16776960;
 
             var errors = [];
             for (var counter = 0; counter < e.details.length; counter++) {
                 errors.push(e.details[counter].message);
             }
-            embed["description"] = errors.join("\n");
+            badembed["description"] = errors.join("\n");
             await bot.createMessage(msg.channel.id, { embed });
             return false;
         } else {
@@ -237,7 +258,6 @@ const get_embed_attachment = async function(msg) {
     }
     return embed;
 };
-
 
 
 //
@@ -262,7 +282,7 @@ const checkdbperm = async function (msg) {
 
     var guild = await get_guild(msg.guildID);
 
-    // can't do every/foreach, needs to be in the same name space
+    // can't do every/foreach, needs to be in the same namespace
     for (var counter = 0; counter < guild.get("required_perms").length; counter++) {
         if (msg.member.permissions.has(guild.get("required_perms")[counter].toLowerCase())) {
             return true;
@@ -274,23 +294,46 @@ const checkdbperm = async function (msg) {
 //
 //              Boi what the fuck I hate intergrations
 //
-client.on("interactionCreate", (resBody) => {
+client.on("interactionCreate", async function (resBody) {
     console.log(resBody);
     var uuid_dirty = resBody.data.custom_id.match("GR_(.*)");
-    if (!uuid_dirty == 2) return client.replyInteraction(resBody, null, "Cannot give role | UUID does not match");
-    var dbe;
-    try {
-        dbe = Embeds.findByPk(uuid_dirty[1]);
-    } catch (e) {
-        return client.replyInteraction(resBody, null, "Cannot give role | UUID not found");
-    }
+    if (!uuid_dirty == 2) return await client.replyInteraction(resBody, null, "Cannot give role | UUID does not match", { ephemeral: 1 << 6 });
+    var dbe = await Embeds.findByPk(uuid_dirty[1]);
+    if (!dbe) return await client.replyInteraction(resBody, null, "Cannot give role | UUID not found", { ephemeral: 1 << 6 });
+    if (!dbe.enabled) return await client.replyInteraction(resBody, null, "Max roles given Sorry! ", { ephemeral: 1 << 6 });
+    if (!dbe.gid === resBody.guild_id) return await client.replyInteraction(resBody, null, "Cannot Give role | Embed/button not related to guild ", { ephemeral: 1 << 6 });   
+    var guild = await bot.guilds.get(dbe.gid);
+    if (!guild) return await client.replyInteraction(resBody, null, "Cannot give role | Guild does not exist", { ephemeral: 1 << 6 });
+    var member = await guild.members.find((member) => member.id === resBody.member.user.id);
+    if (!member) return await client.replyInteraction(resBody, null, "Cannot give role | Aparently you do not exist in this guild 🤔", { ephemeral: 1 << 6 });
+    if (member.roles.includes(dbe.rid)) return await client.replyInteraction(resBody, null, "You already have the role, Congrats 🎉", { ephemeral: 1 << 6 });
+    member.addRole(dbe.rid, `added from embed - ${dbe.mid || "None"}`).then(async function () {
+        await client.replyInteraction(resBody, null, "Role has been assigned :)", { ephemeral: 1 << 6 });
+        dbe.role_count = dbe.role_count + 1;
+        if (dbe.role_count >= dbe.role_max) {
+            dbe.enabled = false;
+            var guild = await get_guild(dbe.gid);
+            var Button = new ErisComponents.Button()
+                .setLabel("Click me for role!")
+                .setID(`GR_${dbe.id}`)
+                .setStyle("red")
+                .setDisabled();
 
-    // TODO: give role :)
-
-
-    client.replyInteraction(resBody, null, "Role has been assigned :)");
+            await client.editComponents(resBody.message, Button, { embed: guild.finish_embed });
+        }
+        //update_msg(resbody, dbe.role_count);
+        await dbe.save();
+        return;
+    }).catch(async function (e) {
+        console.error(e);
+        if (!e) return await client.replyInteraction(resBody, null, "Cannot give role | Role cannot be assigned", { ephemeral: 1 << 6 });
+        if (e.code === 50001) {
+            return await client.replyInteraction(resBody, null, "Cannot give role | Missing Access", { ephemeral: 1 << 6 });
+        } else {
+            return await client.replyInteraction(resBody, null, "Cannot give role | Discord returned an unknown error", { ephemeral: 1 << 6 });
+        }
+    }); 
 });
-
 
 
 bot.registerCommand("prefix", async function(msg, args) {
@@ -347,6 +390,29 @@ bot.registerCommand("set_dembed", async function(msg, args) {
 }, { requirements: { custom: checkdbperm } });
 
 
+// eslint-disable-next-line no-unused-vars
+bot.registerCommand("set_fembed", async function (msg, args) {
+    if (!msg.attachments > 0) {
+        return `Could not find embed attached with this command\nUpload the file and in the comment do \`${msg.prefix + "setembed"}\` to upload the file with the command`;
+    }
+    var embed = await get_embed_attachment(msg);
+    if (!embed) return;
+
+    var embedcheck = await bot.createMessage(msg.channel.id, { content: "React to accept embed :)", embed: embed });
+    var answer = await accept_deny_q(embedcheck, msg.author, 60000);
+    if (answer) {
+        var guild = await get_guild(msg.guildID);
+        guild.finish_embed = embed;
+        guild.save();
+        await bot.createMessage(msg.channel.id, "Embed has been saved");
+    } else {
+        await bot.createMessage(msg.channel.id, "Embed has not been saved");
+    }
+    await embedcheck.delete();
+}, { requirements: { custom: checkdbperm } });
+
+
+
 
 //<p> rid
 bot.registerCommand("set_role", async function(msg, args) {
@@ -392,29 +458,32 @@ bot.registerCommand("post", async function(msg, args) {
     var mcount = parseInt(args[0]);
     if (isNaN(mcount)) return "arg is not a number, please give a number to set the amount of roles to give out";
      
-    var edb = await Embeds.create({ mid: null, gid: guild.gid, cid: guild.cid, rid: guild.rid, role_count: 0, role_max: mcount, enabled: true });
+    var edb = await Embeds.create({ mid: null, gid: guild.gid, cid: guild.cid, rid: guild.rid, role_count: 0, role_max: mcount, enabled: true, embed: embed });
 
     var Button = new ErisComponents.Button()
         .setLabel("Click me for role!")
         .setID(`GR_${edb.id}`)
         .setStyle("blurple");
 
-    var fmsg = await client.sendComponents(guild.cid, Button, { embed: embed }, );
+    var fmsg = await client.sendComponents(guild.cid, Button, { embed: embed });
     edb.mid = fmsg.id;
     edb.save();
+    msg.addReaction("✅");
 }, { requirements: { custom: checkdbperm } });
 
 
 bot.registerCommand("ping", "pong!", { requirements: { custom: checkdbperm }});
 
+
+// TODO: async no return content
 // eslint-disable-next-line no-unused-vars
 bot.registerCommand("eval", async function(msg, args) {
     if (!cfg.owners.includes(msg.author.id)) {
         return;
     } else {
-        let codeInBlock = /^```(?:js)?\s(.+[^\\])```$/is;
-        let code = msg.content.replace(msg.prefix +"eval", "").trim();
-        let editable = null;
+        var codeInBlock = /^```(?:js)?\s(.+[^\\])```$/is;
+        var code = msg.content.replace(msg.prefix +"eval", "").trim();
+        var editable = null;
 
         code = code.trim();
         if (codeInBlock.test(code)) {
@@ -428,7 +497,7 @@ bot.registerCommand("eval", async function(msg, args) {
         if (code.includes("await")) {
             code = `async () => {${code}}`;
 
-            let embed = {};
+            var embed = {};
             embed["title"] = "Discord Eval:";
             embed["description"] = "Running eval";
 
@@ -439,38 +508,38 @@ bot.registerCommand("eval", async function(msg, args) {
             code = `() => {${code}}`;
         }
 
-        let out = null;
+        var out = null;
         try {
             out = await eval(code)();
         } catch (err) {
             out = err;
         }
 
-        let classe = "void";
+        var classe = "void";
         if (out !== undefined && out !== null) {
             classe = out.constructor.name;
         }
 
-        let formatted = code;
+        var formatted = code;
         try {
             formatted = await prettify(code, "js");
 
         // eslint-disable-next-line no-empty
         } catch (err) { }
 
-        let embed = {};
-        embed["fields"] = [];
+        var deembed = {};
+        deembed["fields"] = [];
 
-        embed["title"] = "Discord Eval:";
-        embed["description"] = `**Classe** : \`\`${classe}\`\`\n` + `**Type** : \`${typeof out}\``;
+        deembed["title"] = "Discord Eval:";
+        deembed["description"] = `**Classe** : \`\`${classe}\`\`\n` + `**Type** : \`${typeof out}\``;
 
-        embed["fields"].push({
+        deembed["fields"].push({
             "name": "Code ↓",
             "value": `\`\`\`js\n${formatted.length > 0 ? formatted : "void"}`.slice(0, 800) + "\n```",
             "inline": false
         });
 
-        if (editable) await editable.edit(embed);
+        if (editable) await editable.edit(deembed);
 
 
         if (!`${out}`.includes("Error")) {
@@ -481,11 +550,11 @@ bot.registerCommand("eval", async function(msg, args) {
 
 
         if (code.includes("return") || `${out}`.includes("Error")) {
-            let embed = {};
-            embed["title"] = "Return ↓";
-            embed["description"] = `\`\`\`js\n${`${out}`.length > 0 ? `${out}` : "void"}`.slice(0, 1800) + "\n```";
+            var embed_return = {};
+            embed_return["title"] = "Return ↓";
+            embed_return["description"] = `\`\`\`js\n${`${out}`.length > 0 ? `${out}` : "void"}`.slice(0, 1800) + "\n```";
 
-            await bot.createMessage(msg.channel.id, { embed });
+            await bot.createMessage(msg.channel.id, { embed_return });
         }
     }
 }, { requirements: { custom: isowner } });
@@ -493,7 +562,7 @@ bot.registerCommand("eval", async function(msg, args) {
 
 bot.on("ready", () => {
     console.log(`Connected with user: ${bot.user.username}#${bot.user.discriminator} (${bot.user.id})` );
-    console.log(`"https://discord.com/api/oauth2/authorize?client_id=${bot.application.id}&permissions=68608&scope=bot"`);
+    console.log(`"https://discord.com/api/oauth2/authorize?client_id=${bot.application.id}&permissions=378225888320&scope=bot"`);
 });
 
 bot.on("error", (err) => {

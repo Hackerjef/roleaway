@@ -8,6 +8,7 @@
   "private": true,
   "dependencies": {
     "axios": "^0.22.0",
+    "bufferutil": "^4.0.4",
     "eris": "^0.15.1",
     "eris-components": "^1.0.1",
     "eris-reactions": "^0.1.4",
@@ -16,6 +17,7 @@
     "promise": "^8.1.0",
     "sequelize": "^6.6.5",
     "sqlite3": "^5.0.2",
+    "utf-8-validate": "^5.0.6",
     "uuid": "^8.3.2"
   }
 }
