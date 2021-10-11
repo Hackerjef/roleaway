@@ -104,8 +104,8 @@ const Guild = sequelize.define("Guild", {
     },
     default_embed: {
         type: DataTypes.STRING,
-        allowNull: true,
-        defaultValue: null,
+        allowNull: false,
+        defaultValue: JSON.stringify({ "title": "Last role has been given out!", "color": 5793266 }),
         get() {
             return JSON.parse(this.getDataValue("default_embed"));
         },
@@ -291,6 +291,7 @@ const checkdbperm = async function (msg) {
     return false;
 };
 
+
 //
 //              Boi what the fuck I hate intergrations
 //
@@ -318,7 +319,6 @@ client.on("interactionCreate", async function (resBody) {
                 .setID(`GR_${dbe.id}`)
                 .setStyle("red")
                 .setDisabled();
-
             await client.editComponents(resBody.message, Button, { embed: guild.finish_embed });
         }
         //update_msg(resbody, dbe.role_count);

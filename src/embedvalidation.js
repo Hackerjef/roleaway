@@ -7,8 +7,6 @@
     The license linked to this repo is not assigned to this file but to the original license (no license) of the repo https://github.com/SwitchbladeBot/discord-embed-validator
   */
 
-
-
 const Joi = require("joi");
 
 module.exports = Joi.object({
