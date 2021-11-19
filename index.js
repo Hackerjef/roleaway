@@ -247,7 +247,7 @@ const get_embed_attachment = async function(msg) {
                 errors.push(e.details[counter].message);
             }
             badembed["description"] = errors.join("\n");
-            await bot.createMessage(msg.channel.id, { badembed });
+            await bot.createMessage(msg.channel.id, { embed: badembed });
             return false;
         } else {
             console.error(e);
@@ -498,7 +498,7 @@ bot.registerCommand("eval", async function(msg, args) {
             embed["title"] = "Discord Eval:";
             embed["description"] = "Running eval";
 
-            editable = await bot.createMessage(msg.channel.id, { embed });
+            editable = await bot.createMessage(msg.channel.id, { embed: embed });
             await msg.channel.sendTyping();
 
         } else {
@@ -536,7 +536,7 @@ bot.registerCommand("eval", async function(msg, args) {
             "inline": false
         });
 
-        if (editable) await editable.edit(deembed);
+        if (editable) await editable.edit({ embed: deembed });
 
 
         if (!`${out}`.includes("Error")) {
@@ -551,7 +551,7 @@ bot.registerCommand("eval", async function(msg, args) {
             embed_return["title"] = "Return ↓";
             embed_return["description"] = `\`\`\`js\n${`${out}`.length > 0 ? `${out}` : "void"}`.slice(0, 1800) + "\n```";
 
-            await bot.createMessage(msg.channel.id, { embed_return });
+            await bot.createMessage(msg.channel.id, { embed: embed_return });
         }
     }
 }, { requirements: { custom: isowner } });
