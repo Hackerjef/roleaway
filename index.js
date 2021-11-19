@@ -126,7 +126,9 @@ const Embeds = sequelize.define("Embeds", {
     id: {
         type: DataTypes.UUIDV4,
         allowNull: false,
-        defaultValue: uuidv4(),
+        defaultValue: function() {
+            return uuidv4()
+        },
         primaryKey: true
     },
     gid: {
@@ -217,7 +219,7 @@ const accept_deny_q = async function(msg, user, timeout) {
 
 
 const format_embed = async function(embed, remaining, max) {
-    var fembed = embed
+    var fembed = JSON.parse(JSON.stringify(embed));
     traverse(fembed).forEach(function (x) {
         if (typeof x == 'string') {
             updated = x.replace("{remaining}", remaining)
@@ -225,8 +227,6 @@ const format_embed = async function(embed, remaining, max) {
             this.update(updated)
         }
     });
-
-
     return fembed
 }
 
@@ -341,11 +341,13 @@ client.on("interactionCreate", async function (resBody) {
                 .setStyle("red")
                 .setDisabled();
             await client.editComponents(resBody.message, Button, { embed: guild.finish_embed });
-        }
+        } 
         await dbe.save();
         // fuck ratelimits
-        m = await bot.getMessage(dbe.cid, dbe.mid)
-        await m.edit({ embed: await format_embed(dbe.embed, dbe.role_max - dbe.role_count, dbe.role_max) })
+        if (dbe.role_count < dbe.role_max) { 
+            m = await bot.getMessage(dbe.cid, dbe.mid)
+            await m.edit({ embed: await format_embed(dbe.embed, dbe.role_max - dbe.role_count, dbe.role_max) })
+        }
         return;
     }).catch(async function (e) {
         console.error(e);
@@ -488,7 +490,7 @@ bot.registerCommand("post", async function(msg, args) {
         .setID(`GR_${edb.id}`)
         .setStyle("blurple");
 
-    var fmsg = await client.sendComponents(guild.cid, Button, { embed: await format_embed(embed, mcount - role_count, mcount) });
+    var fmsg = await client.sendComponents(guild.cid, Button, { embed: await format_embed(embed, mcount - edb.role_count, mcount) });
     edb.mid = fmsg.id;
     edb.save();
     msg.addReaction("✅");
