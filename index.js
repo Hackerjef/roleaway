@@ -105,7 +105,7 @@ const Guild = sequelize.define("Guild", {
     default_embed: {
         type: DataTypes.STRING,
         allowNull: false,
-        defaultValue: JSON.stringify({ "title": "Last role has been given out!", "color": 5793266 }),
+        defaultValue: JSON.stringify({ "title": "Click here for role :)", "color": 5793266 }),
         get() {
             return JSON.parse(this.getDataValue("default_embed"));
         },
