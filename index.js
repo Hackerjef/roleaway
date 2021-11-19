@@ -208,7 +208,6 @@ const accept_deny_q = async function(msg, user, timeout) {
                 resolve(false);
 
             }
-            console.log(event);
         });
 
     });
@@ -296,7 +295,6 @@ const checkdbperm = async function (msg) {
 //              Boi what the fuck I hate intergrations
 //
 client.on("interactionCreate", async function (resBody) {
-    console.log(resBody);
     var uuid_dirty = resBody.data.custom_id.match("GR_(.*)");
     if (!uuid_dirty == 2) return await client.replyInteraction(resBody, null, "Cannot give role | UUID does not match", { ephemeral: 1 << 6 });
     var dbe = await Embeds.findByPk(uuid_dirty[1]);
@@ -321,7 +319,6 @@ client.on("interactionCreate", async function (resBody) {
                 .setDisabled();
             await client.editComponents(resBody.message, Button, { embed: guild.finish_embed });
         }
-        //update_msg(resbody, dbe.role_count);
         await dbe.save();
         return;
     }).catch(async function (e) {
