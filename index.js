@@ -35,6 +35,8 @@ const axio = require("axios");
 const Promise = require("promise");
 const { Sequelize, DataTypes } = require("sequelize");
 const { v4: uuidv4 } = require("uuid");
+const traverse = require('traverse');
+
 
 const sequelize = new Sequelize({
     dialect: "sqlite",
@@ -214,6 +216,21 @@ const accept_deny_q = async function(msg, user, timeout) {
 };
 
 
+const format_embed = async function(embed, remaining, max) {
+    var fembed = embed
+    traverse(fembed).forEach(function (x) {
+        if (typeof x == 'string') {
+            updated = x.replace("{remaining}", remaining)
+            updated = updated.replace("{max}", max)
+            this.update(updated)
+        }
+    });
+
+
+    return fembed
+}
+
+
 const get_embed_attachment = async function(msg) {
     var response;
     try {
@@ -306,6 +323,12 @@ client.on("interactionCreate", async function (resBody) {
     var member = await guild.members.find((member) => member.id === resBody.member.user.id);
     if (!member) return await client.replyInteraction(resBody, null, "Cannot give role | Aparently you do not exist in this guild 🤔", { ephemeral: 1 << 6 });
     if (member.roles.includes(dbe.rid)) return await client.replyInteraction(resBody, null, "You already have the role, Congrats 🎉", { ephemeral: 1 << 6 });
+
+    // Double check
+    if (dbe.role_count >= dbe.role_max) {
+        return await client.replyInteraction(resBody, null, "Max roles given Sorry! ", { ephemeral: 1 << 6 });
+    }
+
     member.addRole(dbe.rid, `added from embed - ${dbe.mid || "None"}`).then(async function () {
         await client.replyInteraction(resBody, null, "Role has been assigned :)", { ephemeral: 1 << 6 });
         dbe.role_count = dbe.role_count + 1;
@@ -320,6 +343,9 @@ client.on("interactionCreate", async function (resBody) {
             await client.editComponents(resBody.message, Button, { embed: guild.finish_embed });
         }
         await dbe.save();
+        // fuck ratelimits
+        m = await bot.getMessage(dbe.cid, dbe.mid)
+        await m.edit({ embed: await format_embed(dbe.embed, dbe.role_max - dbe.role_count, dbe.role_max) })
         return;
     }).catch(async function (e) {
         console.error(e);
@@ -329,7 +355,7 @@ client.on("interactionCreate", async function (resBody) {
         } else {
             return await client.replyInteraction(resBody, null, "Cannot give role | Discord returned an unknown error", { ephemeral: 1 << 6 });
         }
-    }); 
+    });
 });
 
 
@@ -373,7 +399,7 @@ bot.registerCommand("set_dembed", async function(msg, args) {
     var embed = await get_embed_attachment(msg);
     if (!embed) return;
 
-    var embedcheck = await bot.createMessage(msg.channel.id, { content: "React to accept embed :)", embed: embed });
+    var embedcheck = await bot.createMessage(msg.channel.id, { content: "React to accept embed :)", embed: await format_embed(embed, 0, 0) });
     var answer = await accept_deny_q(embedcheck, msg.author, 60000);
     if (answer) {
         var guild = await get_guild(msg.guildID);
@@ -462,7 +488,7 @@ bot.registerCommand("post", async function(msg, args) {
         .setID(`GR_${edb.id}`)
         .setStyle("blurple");
 
-    var fmsg = await client.sendComponents(guild.cid, Button, { embed: embed });
+    var fmsg = await client.sendComponents(guild.cid, Button, { embed: await format_embed(embed, mcount - role_count, mcount) });
     edb.mid = fmsg.id;
     edb.save();
     msg.addReaction("✅");
