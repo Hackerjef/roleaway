@@ -247,7 +247,7 @@ const get_embed_attachment = async function(msg) {
                 errors.push(e.details[counter].message);
             }
             badembed["description"] = errors.join("\n");
-            await bot.createMessage(msg.channel.id, { embed });
+            await bot.createMessage(msg.channel.id, { badembed });
             return false;
         } else {
             console.error(e);
