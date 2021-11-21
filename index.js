@@ -40,7 +40,9 @@ const traverse = require('traverse');
 
 const sequelize = new Sequelize({
     dialect: "sqlite",
-    storage: "./db.sqlite"
+    storage: "./db.sqlite",
+    logQueryParameters: false,
+    logging: false
 });
 
 var bot;
@@ -673,7 +675,7 @@ bot.on("error", (err) => {
 // reg prefix & put embeds into mem
 (async () => {
     // sync db
-    await sequelize.sync({ force: false });
+    await sequelize.sync({ alter: true });
 
     //guild prefix
     var guilds = await Guild.findAll();
