@@ -210,7 +210,6 @@ const accept_deny_q = async function(msg, user, timeout) {
             } else if (event.emoji.name === "❌") {
                 reactionListener.stopListening(null);
                 resolve(false);
-
             }
         });
 
@@ -443,54 +442,131 @@ bot.registerCommand("set_fembed", async function (msg, args) {
 bot.registerCommand("set_role", async function(msg, args) {
     if (!args.length > 0) return `Role not given, \`${msg.prefix}set_role rid`;
     if (!msg.channel.guild.roles.has(args[0])) return "Role does not exist in this guild";
-    var guild = await get_guild(msg.guildID);
-    guild.rid = args[0];
-    guild.save();
+
+    var guild = await bot.guilds.get(msg.guildID);
+    var guilddb = await get_guild(msg.guildID);
+    var r = guild.roles.find(role => { return role.id === args[0]})
+    if (typeof r == 'undefined') {
+        return "Provided role is invalid"
+    }
+
+    if (r.permissions.has("administrator")) {
+        return "Provided role has administrator, not setting"
+    }
+
+
+    guilddb.rid = args[0];
+    guilddb.save();
     return `Role has been set to: \`${args[0]}\``;
-});
+}, { requirements: { custom: checkdbperm } });
 
 bot.registerCommand("set_channel", async function (msg, args) {
     if (!args.length > 0) return `channel not given, \`${msg.prefix}set_channel cid`;
     if (!msg.channel.guild.channels.has(args[0])) return "channel does not exist in this guild";
-    var guild = await get_guild(msg.guildID);
-    guild.cid = args[0];
-    guild.save();
+
+    var guild = await bot.guilds.get(msg.guildID);
+    var guilddb = await get_guild(msg.guildID);
+
+    var c = guild.channels.find(channel => { return channel.id === args[0]})
+
+    if (typeof c == 'undefined') {
+        return "Provided channel is invalid"
+    }
+    var perms = c.permissionsOf(bot.user.id)
+
+    if (!perms.has("sendMessages") || !perms.has("viewChannel") || !perms.has("embedLinks")) {
+        mperms = []
+        if (!perms.has("sendMessages")) mperms.push("sendmessages")
+        if (!perms.has("viewChannel")) mperms.push("viewchannel")
+        if (!perms.has("embedLinks")) mperms.push("embedlinks")
+        return `Bot is missing \`${mperms.join(" ,")}\` perms in channel`
+    }
+    guilddb.cid = args[0];
+    guilddb.save();
     return `channel has been set to: \`${args[0]}\``;
-});
+}, { requirements: { custom: checkdbperm } });
 
 
 
 //<p> count
 // eslint-disable-next-line no-unused-vars
 bot.registerCommand("post", async function(msg, args) {
-    if (args.length > 1 || args.length < 1) return `unspecified args given: \`${msg.prefix}post count\``;
+    if (args.length > 3 || args.length < 1) return `unspecified args given: \`${msg.prefix}post count (r:id/c:id)\`\nexample: \`${msg.prefix}post 1\` \`${msg.prefix}post 1 rid:0000000000000000000 cid:0000000000000000000\``;
     
-    var guild = await get_guild(msg.guildID);
+    var guild = await bot.guilds.get(msg.guildID);
+    var guilddb = await get_guild(msg.guildID);
 
-    if (!guild.rid) return `Role has not been set, set it using ${msg.prefix}set_role roleid`;
-    if (!guild.cid) return `Channel has not been set, set it using ${msg.prefix}set_channel cid`;
+    // rid
+    rid = args.find(x => { return x.includes("rid:")}) 
+    if (typeof rid == 'undefined') {
+        if (guilddb.rid) {
+            rid = guilddb.rid
+        } else {
+            return `default role has not been set, set it using ${msg.prefix}set_role roleid OR include it with rid:000000000000`
+        }
+    }
+    rid = rid.replace("rid:", "")
+
+    var r = guild.roles.find(role => { return role.id === rid})
+    if (typeof r == 'undefined') {
+        return `default/provided role is not found`
+    }
+
+    if (r.permissions.has("administrator")) {
+        return "default/provided role has administrator not posting"
+    }
+
+
+    
+    cid = args.find(x => { return x.includes("cid:")})
+    if (typeof cid == 'undefined') {
+        if (guilddb.cid) {
+            cid = guilddb.cid
+        } else {
+            return `Default channel has not been set, set it using ${msg.prefix}set_channel channelid OR include it with cid:000000000000`
+        }
+    }
+    cid = cid.replace("cid:", "")
+    // get permission of channel
+    var c = guild.channels.find(channel => { return channel.id === cid})
+    if (typeof c == 'undefined') {
+        return "Provided/default channel is invalid"
+    }
+
+    var perms = c.permissionsOf(bot.user.id)
+    if (!perms.has("sendMessages") || !perms.has("viewChannel") || !perms.has("embedLinks")) {
+        mperms = []
+        if (!perms.has("sendMessages")) mperms.push("sendmessages")
+        if (!perms.has("viewChannel")) mperms.push("viewchannel")
+        if (!perms.has("embedLinks")) mperms.push("embedlinks")
+        return `Bot is missing \`${mperms.join(" ,")}\` perms in channel`
+    }
+
+
 
     //check if embed was given or have a default
     var embed;
     if (msg.attachments > 1) {
         embed = await get_embed_attachment(msg);
-    } else if (guild.default_embed) {
-        embed = guild.default_embed;
+        if (!embed) return
+    } else if (guilddb.default_embed) {
+        embed = guilddb.default_embed;
+        
     } else {
-        return `No embed set (default or given as a attachment) Please set a default (${msg.prefix}set_dembed) or attach json of an embed of command`;
+        return `No embed set (default or given as a attachment) Please set a default (${msg.prefix}set_dembed) or attach json file of an embed of command`;
     }
 
     var mcount = parseInt(args[0]);
     if (isNaN(mcount)) return "arg is not a number, please give a number to set the amount of roles to give out";
      
-    var edb = await Embeds.create({ mid: null, gid: guild.gid, cid: guild.cid, rid: guild.rid, role_count: 0, role_max: mcount, enabled: true, embed: embed });
+    var edb = await Embeds.create({ mid: null, gid: guilddb.gid, cid: cid, rid: rid, role_count: 0, role_max: mcount, enabled: true, embed: embed });
 
     var Button = new ErisComponents.Button()
         .setLabel("Click me for role!")
         .setID(`GR_${edb.id}`)
         .setStyle("blurple");
 
-    var fmsg = await client.sendComponents(guild.cid, Button, { embed: await format_embed(embed, mcount - edb.role_count, mcount) });
+    var fmsg = await client.sendComponents(cid, Button, { embed: await format_embed(embed, mcount - edb.role_count, mcount) });
     edb.mid = fmsg.id;
     edb.save();
     msg.addReaction("✅");
