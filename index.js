@@ -35,7 +35,7 @@ const axio = require("axios");
 const Promise = require("promise");
 const { Sequelize, DataTypes } = require("sequelize");
 const { v4: uuidv4 } = require("uuid");
-const traverse = require('traverse');
+const traverse = require("traverse");
 
 
 const sequelize = new Sequelize({
@@ -56,7 +56,8 @@ if (cfg.token) {
 }
 
 // eslint-disable-next-line no-unused-vars
-const client = ErisComponents.Client(bot, { debug: true, invalidClientInstanceError: true, ignoreRequestErrors: false });
+const client = ErisComponents.Client(bot, { debug: false, invalidClientInstanceError: false, ignoreRequestErrors: false });
+var running_givaways = {};
 
 //
 //             DB models
@@ -123,63 +124,30 @@ const Guild = sequelize.define("Guild", {
     updatedAt: false,
 });
 
-const Embeds = sequelize.define("Embeds", {
-    // Model attributes are defined here
-    id: {
-        type: DataTypes.UUIDV4,
-        allowNull: false,
-        defaultValue: function() {
-            return uuidv4()
-        },
-        primaryKey: true
-    },
-    gid: {
-        type: DataTypes.STRING,
-        allowNull: false
-    },
-    mid: {
-        type: DataTypes.STRING,
-        allowNull: true,
-        defaultValue: null,
-    },
-    cid: {
-        type: DataTypes.STRING,
-        allowNull: false
-    },
-    rid: {
-        type: DataTypes.STRING,
-        allowNull: false
-    },
-    role_count: {
-        type: DataTypes.INTEGER,
-        allowNull: false,
-        defaultValue: 0
-    },
-    role_max: {
-        type: DataTypes.STRING,
-        allowNull: false
-    },
-    embed: {
-        type: DataTypes.BOOLEAN,
-        allowNull: false,
-        get() {
-            return JSON.parse(this.getDataValue("embed"));
-        },
-        set(value) {
-            this.setDataValue("embed", JSON.stringify(value));
-        }
-    },
-    enabled: {
-        type: DataTypes.BOOLEAN,
-        allowNull: false,
-        defaultValue: true
-    }
-}, {
-    timestamps: false,
-    createdAt: false,
-    updatedAt: false,
-});
 
+var finished_givaways = [];
+const process_winners = async function (id) {
+    if (finished_givaways.includes(id)) return false;
+    finished_givaways.push(id);
+    var giveaway = running_givaways[id];
+    console.log(`Processing winners for ${id} members to give: ${giveaway['members'].length} max_roles: ${giveaway['role_max']}`);
+    var guild = await bot.guilds.get(giveaway["gid"]);
+    // process winners and give roles
+    roles_given = 0
+    giveaway["members"].forEach(async function(id) {
+        if (roles_given > giveaway['role_max']) return console.log(`${id}: Max amount of roles given, Stoping...`)
+        console.log(`${id}: Giving role ${giveaway['rid']} to user ${id}`)
+        var member = await guild.members.find((member) => member.id === id);
+        await member.addRole(giveaway['rid'], `added from embed - ${giveaway["mid"] || "None"}`)
+        .then(function() {
+            roles_given++
+        })
+        .catch(async function (e) {
+            console.error(e);
+        });
+
+    });
+};
 
 const get_guild = async function (gid) {
     var [guild, created] = await Guild.findOrCreate({ where: { gid: gid }, defaults: { gid: gid } });
@@ -222,14 +190,15 @@ const accept_deny_q = async function(msg, user, timeout) {
 const format_embed = async function(embed, remaining, max) {
     var fembed = JSON.parse(JSON.stringify(embed));
     traverse(fembed).forEach(function (x) {
+        // eslint-disable-next-line quotes
         if (typeof x == 'string') {
-            updated = x.replace("{remaining}", remaining)
-            updated = updated.replace("{max}", max)
-            this.update(updated)
+            var updated = x.replace("{remaining}", remaining);
+            updated = updated.replace("{max}", max);
+            this.update(updated);
         }
     });
-    return fembed
-}
+    return fembed;
+};
 
 
 const get_embed_attachment = async function(msg) {
@@ -312,53 +281,35 @@ const checkdbperm = async function (msg) {
 //
 //              Boi what the fuck I hate intergrations
 //
-client.on("interactionCreate", async function (resBody) {
-    var uuid_dirty = resBody.data.custom_id.match("GR_(.*)");
-    if (!uuid_dirty == 2) return await client.replyInteraction(resBody, null, "Cannot give role | UUID does not match", { ephemeral: 1 << 6 });
-    var dbe = await Embeds.findByPk(uuid_dirty[1]);
-    if (!dbe) return await client.replyInteraction(resBody, null, "Cannot give role | UUID not found", { ephemeral: 1 << 6 });
-    if (!dbe.enabled) return await client.replyInteraction(resBody, null, "Max roles given Sorry! ", { ephemeral: 1 << 6 });
-    if (!dbe.gid === resBody.guild_id) return await client.replyInteraction(resBody, null, "Cannot Give role | Embed/button not related to guild ", { ephemeral: 1 << 6 });   
-    var guild = await bot.guilds.get(dbe.gid);
-    if (!guild) return await client.replyInteraction(resBody, null, "Cannot give role | Guild does not exist", { ephemeral: 1 << 6 });
-    var member = await guild.members.find((member) => member.id === resBody.member.user.id);
-    if (!member) return await client.replyInteraction(resBody, null, "Cannot give role | Aparently you do not exist in this guild 🤔", { ephemeral: 1 << 6 });
-    if (member.roles.includes(dbe.rid)) return await client.replyInteraction(resBody, null, "You already have the role, Congrats 🎉", { ephemeral: 1 << 6 });
-
-    // Double check
-    if (dbe.role_count >= dbe.role_max) {
-        return await client.replyInteraction(resBody, null, "Max roles given Sorry! ", { ephemeral: 1 << 6 });
+client.on("componentInteract", async function (resBody) {
+    var uuid_dirty = resBody.data.custom_id.match("GR_(.*)_(.*)");
+    if (uuid_dirty.length != 3) return await client.replyInteraction(resBody, null, "Malformed interaction.", { ephemeral: 1 << 6 });
+    if (uuid_dirty[2] == "_notready") return await client.replyInteraction(resBody, null, "Cannot give role | Interaction Not Ready", { ephemeral: 1 << 6 });
+    if (!running_givaways[uuid_dirty[1]]) return await client.replyInteraction(resBody, null, "Cannot give role | UUID not found", { ephemeral: 1 << 6 });
+    if (running_givaways[uuid_dirty[1]]["finished"]) return await client.replyInteraction(resBody, null, "Max roles given Sorry! ", { ephemeral: 1 << 6 });
+    if (!running_givaways[uuid_dirty[1]]["gid"] === resBody.guild_id) return await client.replyInteraction(resBody, null, "Cannot Give role | Embed/button not related to guild ", { ephemeral: 1 << 6 });
+    if (running_givaways[uuid_dirty[1]]["members"].includes(resBody.member.user.id)) return await client.replyInteraction(resBody, null, "You have already entered to get a role!\n**Roles will be given when last role is given out!** 🎉", { ephemeral: 1 << 6 });
+    if (running_givaways[uuid_dirty[1]]["role_count"] >= running_givaways[uuid_dirty[1]]["role_max"]) return await client.replyInteraction(resBody, null, "Max roles given Sorry! ", { ephemeral: 1 << 6 });
+    running_givaways[uuid_dirty[1]]["members"].push(resBody.member.user.id);
+    running_givaways[uuid_dirty[1]]["role_count"]++;
+    await client.replyInteraction(resBody, null, "You have been entered to get a role!\nRoles will be given when last role is given out! 🎉", { ephemeral: 1 << 6 });
+    
+    var m = await bot.getMessage(running_givaways[uuid_dirty[1]]["cid"], running_givaways[uuid_dirty[1]]["mid"]);
+    // TODO: Replace m. with it built in
+    if (running_givaways[uuid_dirty[1]]["role_count"] >= running_givaways[uuid_dirty[1]]["role_max"]) {
+        running_givaways[uuid_dirty[1]]["finished"] = true;
+        var Button = new ErisComponents.Button()
+            .setLabel("Click me for role!")
+            .setID(`GR_${uuid_dirty[1]}`)
+            .setStyle("red")
+            .setDisabled();
+        var gdb = await get_guild(resBody.guild_id);
+        await client.editComponents(resBody.message, Button, { embed: gdb.finish_embed });
+        await m.edit({ embed: gdb.finish_embed });
+        await process_winners(uuid_dirty[1]);
+    } else {
+        await m.edit({ embed: await format_embed(running_givaways[uuid_dirty[1]]["embed"], running_givaways[uuid_dirty[1]]["role_max"] - running_givaways[uuid_dirty[1]]["role_count"], running_givaways[uuid_dirty[1]]["role_max"]) });
     }
-
-    member.addRole(dbe.rid, `added from embed - ${dbe.mid || "None"}`).then(async function () {
-        await client.replyInteraction(resBody, null, "Role has been assigned :)", { ephemeral: 1 << 6 });
-        dbe.role_count = dbe.role_count + 1;
-        if (dbe.role_count >= dbe.role_max) {
-            dbe.enabled = false;
-            var guild = await get_guild(dbe.gid);
-            var Button = new ErisComponents.Button()
-                .setLabel("Click me for role!")
-                .setID(`GR_${dbe.id}`)
-                .setStyle("red")
-                .setDisabled();
-            await client.editComponents(resBody.message, Button, { embed: guild.finish_embed });
-        } 
-        await dbe.save();
-        // fuck ratelimits
-        if (dbe.role_count < dbe.role_max) { 
-            m = await bot.getMessage(dbe.cid, dbe.mid)
-            await m.edit({ embed: await format_embed(dbe.embed, dbe.role_max - dbe.role_count, dbe.role_max) })
-        }
-        return;
-    }).catch(async function (e) {
-        console.error(e);
-        if (!e) return await client.replyInteraction(resBody, null, "Cannot give role | Role cannot be assigned", { ephemeral: 1 << 6 });
-        if (e.code === 50001) {
-            return await client.replyInteraction(resBody, null, "Cannot give role | Missing Access", { ephemeral: 1 << 6 });
-        } else {
-            return await client.replyInteraction(resBody, null, "Cannot give role | Discord returned an unknown error", { ephemeral: 1 << 6 });
-        }
-    });
 });
 
 
@@ -447,13 +398,13 @@ bot.registerCommand("set_role", async function(msg, args) {
 
     var guild = await bot.guilds.get(msg.guildID);
     var guilddb = await get_guild(msg.guildID);
-    var r = guild.roles.find(role => { return role.id === args[0]})
-    if (typeof r == 'undefined') {
-        return "Provided role is invalid"
+    var r = guild.roles.find(role => { return role.id === args[0];});
+    if (typeof r == "undefined") {
+        return "Provided role is invalid";
     }
 
     if (r.permissions.has("administrator")) {
-        return "Provided role has administrator, not setting"
+        return "Provided role has administrator, not setting";
     }
 
 
@@ -469,19 +420,19 @@ bot.registerCommand("set_channel", async function (msg, args) {
     var guild = await bot.guilds.get(msg.guildID);
     var guilddb = await get_guild(msg.guildID);
 
-    var c = guild.channels.find(channel => { return channel.id === args[0]})
+    var c = guild.channels.find(channel => { return channel.id === args[0];});
 
-    if (typeof c == 'undefined') {
-        return "Provided channel is invalid"
+    if (typeof c == "undefined") {
+        return "Provided channel is invalid";
     }
-    var perms = c.permissionsOf(bot.user.id)
+    var perms = c.permissionsOf(bot.user.id);
 
     if (!perms.has("sendMessages") || !perms.has("viewChannel") || !perms.has("embedLinks")) {
-        mperms = []
-        if (!perms.has("sendMessages")) mperms.push("sendmessages")
-        if (!perms.has("viewChannel")) mperms.push("viewchannel")
-        if (!perms.has("embedLinks")) mperms.push("embedlinks")
-        return `Bot is missing \`${mperms.join(" ,")}\` perms in channel`
+        var mperms = [];
+        if (!perms.has("sendMessages")) mperms.push("sendmessages");
+        if (!perms.has("viewChannel")) mperms.push("viewchannel");
+        if (!perms.has("embedLinks")) mperms.push("embedlinks");
+        return `Bot is missing \`${mperms.join(" ,")}\` perms in channel`;
     }
     guilddb.cid = args[0];
     guilddb.save();
@@ -493,55 +444,55 @@ bot.registerCommand("set_channel", async function (msg, args) {
 //<p> count
 // eslint-disable-next-line no-unused-vars
 bot.registerCommand("post", async function(msg, args) {
-    if (args.length > 3 || args.length < 1) return `unspecified args given: \`${msg.prefix}post count (r:id/c:id)\`\nexample: \`${msg.prefix}post 1\` \`${msg.prefix}post 1 rid:0000000000000000000 cid:0000000000000000000\``;
+    if (args.length > 3 || args.length < 1) return `unspecified args given:\n\`${msg.prefix}post count (r:id/c:id)\`\n\`${msg.prefix}post 1 rid:0000000000000000000 cid:0000000000000000000\``;
     
     var guild = await bot.guilds.get(msg.guildID);
     var guilddb = await get_guild(msg.guildID);
 
     // rid
-    rid = args.find(x => { return x.includes("rid:")}) 
-    if (typeof rid == 'undefined') {
+    var rid = args.find(x => { return x.includes("rid:");}); 
+    if (typeof rid == "undefined") {
         if (guilddb.rid) {
-            rid = guilddb.rid
+            rid = guilddb.rid;
         } else {
-            return `default role has not been set, set it using ${msg.prefix}set_role roleid OR include it with rid:000000000000`
+            return `default role has not been set, set it using ${msg.prefix}set_role roleid OR include it with rid:000000000000`;
         }
     }
-    rid = rid.replace("rid:", "")
+    rid = rid.replace("rid:", "");
 
-    var r = guild.roles.find(role => { return role.id === rid})
-    if (typeof r == 'undefined') {
-        return `default/provided role is not found`
+    var r = guild.roles.find(role => { return role.id === rid;});
+    if (typeof r == "undefined") {
+        return "default/provided role is not found";
     }
 
     if (r.permissions.has("administrator")) {
-        return "default/provided role has administrator not posting"
+        return "default/provided role has administrator not posting";
     }
 
 
     
-    cid = args.find(x => { return x.includes("cid:")})
-    if (typeof cid == 'undefined') {
+    var cid = args.find(x => { return x.includes("cid:");});
+    if (typeof cid == "undefined") {
         if (guilddb.cid) {
-            cid = guilddb.cid
+            cid = guilddb.cid;
         } else {
-            return `Default channel has not been set, set it using ${msg.prefix}set_channel channelid OR include it with cid:000000000000`
+            return `Default channel has not been set, set it using ${msg.prefix}set_channel channelid OR include it with cid:000000000000`;
         }
     }
-    cid = cid.replace("cid:", "")
+    cid = cid.replace("cid:", "");
     // get permission of channel
-    var c = guild.channels.find(channel => { return channel.id === cid})
-    if (typeof c == 'undefined') {
-        return "Provided/default channel is invalid"
+    var c = guild.channels.find(channel => { return channel.id === cid;});
+    if (typeof c == "undefined") {
+        return "Provided/default channel is invalid";
     }
 
-    var perms = c.permissionsOf(bot.user.id)
+    var perms = c.permissionsOf(bot.user.id);
     if (!perms.has("sendMessages") || !perms.has("viewChannel") || !perms.has("embedLinks")) {
-        mperms = []
-        if (!perms.has("sendMessages")) mperms.push("sendmessages")
-        if (!perms.has("viewChannel")) mperms.push("viewchannel")
-        if (!perms.has("embedLinks")) mperms.push("embedlinks")
-        return `Bot is missing \`${mperms.join(" ,")}\` perms in channel`
+        var mperms = [];
+        if (!perms.has("sendMessages")) mperms.push("sendmessages");
+        if (!perms.has("viewChannel")) mperms.push("viewchannel");
+        if (!perms.has("embedLinks")) mperms.push("embedlinks");
+        return `Bot is missing \`${mperms.join(" ,")}\` perms in channel`;
     }
 
 
@@ -550,7 +501,7 @@ bot.registerCommand("post", async function(msg, args) {
     var embed;
     if (msg.attachments > 1) {
         embed = await get_embed_attachment(msg);
-        if (!embed) return
+        if (!embed) return;
     } else if (guilddb.default_embed) {
         embed = guilddb.default_embed;
         
@@ -560,17 +511,26 @@ bot.registerCommand("post", async function(msg, args) {
 
     var mcount = parseInt(args[0]);
     if (isNaN(mcount)) return "arg is not a number, please give a number to set the amount of roles to give out";
-     
-    var edb = await Embeds.create({ mid: null, gid: guilddb.gid, cid: cid, rid: rid, role_count: 0, role_max: mcount, enabled: true, embed: embed });
 
-    var Button = new ErisComponents.Button()
+
+    var id = String(uuidv4());
+    
+     
+    var Button_not_ready = new ErisComponents.Button()
+        .setLabel("Button not ready, Loading")
+        .setID(`GR_${id}_notready`)
+        .setStyle("red")
+        .setDisabled();
+
+    var Button_ready = new ErisComponents.Button()
         .setLabel("Click me for role!")
-        .setID(`GR_${edb.id}`)
+        .setID(`GR_${id}_ready`)
         .setStyle("blurple");
 
-    var fmsg = await client.sendComponents(cid, Button, { embed: await format_embed(embed, mcount - edb.role_count, mcount) });
-    edb.mid = fmsg.id;
-    edb.save();
+    var fmsg = await client.sendComponents(cid, Button_not_ready, { embed: await format_embed(embed, 0, mcount) });
+
+    running_givaways[id] = { "mid": fmsg.id, "gid": guilddb.gid, "cid": cid, "rid": rid, "role_count": 0, "role_max": mcount, "finished": false, "members": [], "embed": embed };
+    await client.editComponents(fmsg, Button_ready, { embed: await format_embed(embed, 0, mcount) });
     msg.addReaction("✅");
 }, { requirements: { custom: checkdbperm } });
 
