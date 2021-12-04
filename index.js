@@ -145,7 +145,6 @@ const process_winners = async function (id) {
         .catch(async function (e) {
             console.error(e);
         });
-
     });
 };
 
@@ -530,8 +529,13 @@ bot.registerCommand("post", async function(msg, args) {
     var fmsg = await client.sendComponents(cid, Button_not_ready, { embed: await format_embed(embed, 0, mcount) });
 
     running_givaways[id] = { "mid": fmsg.id, "gid": guilddb.gid, "cid": cid, "rid": rid, "role_count": 0, "role_max": mcount, "finished": false, "members": [], "embed": embed };
-    await client.editComponents(fmsg, Button_ready, { embed: await format_embed(embed, 0, mcount) });
-    msg.addReaction("✅");
+
+    // wait a few before continuing
+    setTimeout(async function(){
+        await client.editComponents(fmsg, Button_ready, { embed: await format_embed(embed, 0, mcount) });
+        msg.addReaction("✅");
+    },5000);
+    
 }, { requirements: { custom: checkdbperm } });
 
 
