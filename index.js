@@ -134,10 +134,10 @@ const process_winners = async function (id) {
     var guild = await bot.guilds.get(giveaway["gid"]);
     // process winners and give roles
     roles_given = 0
-    giveaway["members"].forEach(async function(id) {
+    giveaway["members"].forEach(async function(uid) {
         if (roles_given > giveaway['role_max']) return console.log(`${id}: Max amount of roles given, Stoping...`)
-        console.log(`${id}: Giving role ${giveaway['rid']} to user ${id}`)
-        var member = await guild.members.find((member) => member.id === id);
+        console.log(`${id}: Giving role ${giveaway['rid']} to user ${uid}`)
+        var member = await guild.members.find((member) => member.id === uid);
         await member.addRole(giveaway['rid'], `added from embed - ${giveaway["mid"] || "None"}`)
         .then(function() {
             roles_given++
@@ -294,7 +294,7 @@ client.on("componentInteract", async function (resBody) {
     await client.replyInteraction(resBody, null, "You have been entered to get a role!\nRoles will be given when last role is given out! 🎉", { ephemeral: 1 << 6 });
     
     var m = await bot.getMessage(running_givaways[uuid_dirty[1]]["cid"], running_givaways[uuid_dirty[1]]["mid"]);
-    // TODO: Replace m. with it built in
+
     if (running_givaways[uuid_dirty[1]]["role_count"] >= running_givaways[uuid_dirty[1]]["role_max"]) {
         running_givaways[uuid_dirty[1]]["finished"] = true;
         var Button = new ErisComponents.Button()
