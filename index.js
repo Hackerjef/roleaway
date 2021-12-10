@@ -125,6 +125,7 @@ const Guild = sequelize.define("Guild", {
 });
 
 
+
 var finished_givaways = [];
 const process_winners = async function (id) {
     if (finished_givaways.includes(id)) return false;
@@ -282,6 +283,7 @@ const checkdbperm = async function (msg) {
 //
 client.on("componentInteract", async function (resBody) {
     var uuid_dirty = resBody.data.custom_id.match("GR_(.*)_(.*)");
+    if (finished_givaways.includes(uuid_dirty[1])) return await client.replyInteraction(resBody, null, "Interaction already finished", { ephemeral: 1 << 6 });
     if (uuid_dirty.length != 3) return await client.replyInteraction(resBody, null, "Malformed interaction.", { ephemeral: 1 << 6 });
     if (uuid_dirty[2] == "_notready") return await client.replyInteraction(resBody, null, "Cannot give role | Interaction Not Ready", { ephemeral: 1 << 6 });
     if (!running_givaways[uuid_dirty[1]]) return await client.replyInteraction(resBody, null, "Cannot give role | UUID not found", { ephemeral: 1 << 6 });
@@ -629,7 +631,7 @@ bot.registerCommand("eval", async function(msg, args) {
 
 bot.on("ready", () => {
     console.log(`Connected with user: ${bot.user.username}#${bot.user.discriminator} (${bot.user.id})` );
-    console.log(`"https://discord.com/api/oauth2/authorize?client_id=${bot.application.id}&permissions=378225888320&scope=bot"`);
+    console.log(`https://discord.com/api/oauth2/authorize?client_id=${bot.application.id}&permissions=378225888320&scope=bot`);
 });
 
 bot.on("error", (err) => {
