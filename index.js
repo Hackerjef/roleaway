@@ -11,8 +11,8 @@ try {
         cfg = {};
         cfg["token"] = "<Fill in token>";
         cfg["prefixes"] = ["ra!", "@mention"];
-        cfg["owners"] =  [];
-        fs.writeFile("cfg.json", JSON.stringify(cfg, null, 4)); 
+        cfg["owners"] = [];
+        fs.writeFile("cfg.json", JSON.stringify(cfg, null, 4));
     } else {
         console.error(e);
     }
@@ -92,7 +92,7 @@ const Guild = sequelize.define("Guild", {
         get() {
             return JSON.parse(this.getDataValue("required_perms"));
         },
-        set(value){
+        set(value) {
             this.setDataValue("required_perms", JSON.stringify(value));
         }
     },
@@ -135,17 +135,17 @@ const process_winners = async function (id) {
     var guild = await bot.guilds.get(giveaway["gid"]);
     // process winners and give roles
     roles_given = 0
-    giveaway["members"].forEach(async function(uid) {
+    giveaway["members"].forEach(async function (uid) {
         if (roles_given > giveaway['role_max']) return console.log(`${id}: Max amount of roles given, Stoping...`)
         console.log(`${id}: Giving role ${giveaway['rid']} to user ${uid}`)
         var member = await guild.members.find((member) => member.id === uid);
         await member.addRole(giveaway['rid'], `added from embed - ${giveaway["mid"] || "None"}`)
-        .then(function() {
-            roles_given++
-        })
-        .catch(async function (e) {
-            console.error(e);
-        });
+            .then(function () {
+                roles_given++
+            })
+            .catch(async function (e) {
+                console.error(e);
+            });
     });
 };
 
@@ -158,9 +158,9 @@ const get_guild = async function (gid) {
     return guild;
 };
 
-const accept_deny_q = async function(msg, user, timeout) {
+const accept_deny_q = async function (msg, user, timeout) {
     // eslint-disable-next-line no-unused-vars
-    await msg.addReaction("✅").catch(err => {});
+    await msg.addReaction("✅").catch(err => { });
     // eslint-disable-next-line no-unused-vars
     msg.addReaction("❌").catch(err => { });
 
@@ -187,7 +187,7 @@ const accept_deny_q = async function(msg, user, timeout) {
 };
 
 
-const format_embed = async function(embed, remaining, max) {
+const format_embed = async function (embed, remaining, max) {
     var fembed = JSON.parse(JSON.stringify(embed));
     traverse(fembed).forEach(function (x) {
         // eslint-disable-next-line quotes
@@ -201,7 +201,7 @@ const format_embed = async function(embed, remaining, max) {
 };
 
 
-const get_embed_attachment = async function(msg) {
+const get_embed_attachment = async function (msg) {
     var response;
     try {
         response = await axio.get(msg.attachments[0].url);
@@ -249,7 +249,7 @@ const get_embed_attachment = async function(msg) {
 //
 //              Perm checks
 //
-const isowner = function(msg) {
+const isowner = function (msg) {
     if (cfg.owners.includes(msg.author.id)) {
         return true;
     } else {
@@ -261,7 +261,7 @@ const checkdbperm = async function (msg) {
     if (isowner(msg)) {
         return true;
     }
-    
+
     if (!msg.guildID) {
         return false;
     }
@@ -294,8 +294,19 @@ client.on("componentInteract", async function (resBody) {
     running_givaways[uuid_dirty[1]]["members"].push(resBody.member.user.id);
     running_givaways[uuid_dirty[1]]["role_count"]++;
     await client.replyInteraction(resBody, null, "You have been entered to get a role!\nRoles will be given when last role is given out! 🎉", { ephemeral: 1 << 6 });
-    
-    var m = await bot.getMessage(running_givaways[uuid_dirty[1]]["cid"], running_givaways[uuid_dirty[1]]["mid"]);
+
+    // if we cant get the message, process remaining entries
+    var m;
+    try {
+        m = await bot.getMessage(running_givaways[uuid_dirty[1]]["cid"], running_givaways[uuid_dirty[1]]["mid"]);
+    } catch (e) {
+        console.log(`Cannot get message for id ${uuid_dirty[1]}, processing winners without max limit given :)`)
+        m = null
+        if (running_givaways[uuid_dirty[1]]["finished"]) return
+        running_givaways[uuid_dirty[1]]["finished"] = true;
+        await process_winners(uuid_dirty[1]);
+    }
+    if (m === null) return
 
     if (running_givaways[uuid_dirty[1]]["role_count"] >= running_givaways[uuid_dirty[1]]["role_max"]) {
         running_givaways[uuid_dirty[1]]["finished"] = true;
@@ -314,7 +325,7 @@ client.on("componentInteract", async function (resBody) {
 });
 
 
-bot.registerCommand("prefix", async function(msg, args) {
+bot.registerCommand("prefix", async function (msg, args) {
     if (args.length > 1) {
         return "Too many args given, can be nothing or a prefix";
     }
@@ -329,7 +340,7 @@ bot.registerCommand("prefix", async function(msg, args) {
         }
         return `Current prefix(s): ${gprefix}`;
     }
-    
+
     if (args[0] === "reset") {
         guild.prefix = null;
         guild.save();
@@ -347,7 +358,7 @@ bot.registerCommand("prefix", async function(msg, args) {
 
 
 // eslint-disable-next-line no-unused-vars
-bot.registerCommand("set_dembed", async function(msg, args) {
+bot.registerCommand("set_dembed", async function (msg, args) {
     if (!msg.attachments > 0) {
         return `Could not find embed attached with this command\nUpload the file and in the comment do \`${msg.prefix + "setembed"}\` to upload the file with the command`;
     }
@@ -393,13 +404,13 @@ bot.registerCommand("set_fembed", async function (msg, args) {
 
 
 //<p> rid
-bot.registerCommand("set_role", async function(msg, args) {
+bot.registerCommand("set_role", async function (msg, args) {
     if (!args.length > 0) return `Role not given, \`${msg.prefix}set_role rid`;
     if (!msg.channel.guild.roles.has(args[0])) return "Role does not exist in this guild";
 
     var guild = await bot.guilds.get(msg.guildID);
     var guilddb = await get_guild(msg.guildID);
-    var r = guild.roles.find(role => { return role.id === args[0];});
+    var r = guild.roles.find(role => { return role.id === args[0]; });
     if (typeof r == "undefined") {
         return "Provided role is invalid";
     }
@@ -421,7 +432,7 @@ bot.registerCommand("set_channel", async function (msg, args) {
     var guild = await bot.guilds.get(msg.guildID);
     var guilddb = await get_guild(msg.guildID);
 
-    var c = guild.channels.find(channel => { return channel.id === args[0];});
+    var c = guild.channels.find(channel => { return channel.id === args[0]; });
 
     if (typeof c == "undefined") {
         return "Provided channel is invalid";
@@ -444,14 +455,14 @@ bot.registerCommand("set_channel", async function (msg, args) {
 
 //<p> count
 // eslint-disable-next-line no-unused-vars
-bot.registerCommand("post", async function(msg, args) {
+bot.registerCommand("post", async function (msg, args) {
     if (args.length > 3 || args.length < 1) return `unspecified args given:\n\`${msg.prefix}post count (r:id/c:id)\`\n\`${msg.prefix}post 1 rid:0000000000000000000 cid:0000000000000000000\``;
-    
+
     var guild = await bot.guilds.get(msg.guildID);
     var guilddb = await get_guild(msg.guildID);
 
     // rid
-    var rid = args.find(x => { return x.includes("rid:");}); 
+    var rid = args.find(x => { return x.includes("rid:"); });
     if (typeof rid == "undefined") {
         if (guilddb.rid) {
             rid = guilddb.rid;
@@ -461,7 +472,7 @@ bot.registerCommand("post", async function(msg, args) {
     }
     rid = rid.replace("rid:", "");
 
-    var r = guild.roles.find(role => { return role.id === rid;});
+    var r = guild.roles.find(role => { return role.id === rid; });
     if (typeof r == "undefined") {
         return "default/provided role is not found";
     }
@@ -471,8 +482,8 @@ bot.registerCommand("post", async function(msg, args) {
     }
 
 
-    
-    var cid = args.find(x => { return x.includes("cid:");});
+
+    var cid = args.find(x => { return x.includes("cid:"); });
     if (typeof cid == "undefined") {
         if (guilddb.cid) {
             cid = guilddb.cid;
@@ -482,7 +493,7 @@ bot.registerCommand("post", async function(msg, args) {
     }
     cid = cid.replace("cid:", "");
     // get permission of channel
-    var c = guild.channels.find(channel => { return channel.id === cid;});
+    var c = guild.channels.find(channel => { return channel.id === cid; });
     if (typeof c == "undefined") {
         return "Provided/default channel is invalid";
     }
@@ -505,7 +516,7 @@ bot.registerCommand("post", async function(msg, args) {
         if (!embed) return;
     } else if (guilddb.default_embed) {
         embed = guilddb.default_embed;
-        
+
     } else {
         return `No embed set (default or given as a attachment) Please set a default (${msg.prefix}set_dembed) or attach json file of an embed of command`;
     }
@@ -515,8 +526,8 @@ bot.registerCommand("post", async function(msg, args) {
 
 
     var id = String(uuidv4());
-    
-     
+
+
     var Button_not_ready = new ErisComponents.Button()
         .setLabel("Button not ready, Loading")
         .setID(`GR_${id}_notready`)
@@ -533,25 +544,25 @@ bot.registerCommand("post", async function(msg, args) {
     running_givaways[id] = { "mid": fmsg.id, "gid": guilddb.gid, "cid": cid, "rid": rid, "role_count": 0, "role_max": mcount, "finished": false, "members": [], "embed": embed };
 
     // wait a few before continuing
-    setTimeout(async function(){
+    setTimeout(async function () {
         await client.editComponents(fmsg, Button_ready, { embed: await format_embed(embed, 0, mcount) });
         msg.addReaction("✅");
-    },5000);
-    
+    }, 5000);
+
 }, { requirements: { custom: checkdbperm } });
 
 
-bot.registerCommand("ping", "pong!", { requirements: { custom: checkdbperm }});
+bot.registerCommand("ping", "pong!", { requirements: { custom: checkdbperm } });
 
 
 // TODO: async no return content
 // eslint-disable-next-line no-unused-vars
-bot.registerCommand("eval", async function(msg, args) {
+bot.registerCommand("eval", async function (msg, args) {
     if (!cfg.owners.includes(msg.author.id)) {
         return;
     } else {
         var codeInBlock = /^```(?:js)?\s(.+[^\\])```$/is;
-        var code = msg.content.replace(msg.prefix +"eval", "").trim();
+        var code = msg.content.replace(msg.prefix + "eval", "").trim();
         var editable = null;
 
         code = code.trim();
@@ -593,7 +604,7 @@ bot.registerCommand("eval", async function(msg, args) {
         try {
             formatted = await prettify(code, "js");
 
-        // eslint-disable-next-line no-empty
+            // eslint-disable-next-line no-empty
         } catch (err) { }
 
         var deembed = {};
@@ -630,7 +641,7 @@ bot.registerCommand("eval", async function(msg, args) {
 
 
 bot.on("ready", () => {
-    console.log(`Connected with user: ${bot.user.username}#${bot.user.discriminator} (${bot.user.id})` );
+    console.log(`Connected with user: ${bot.user.username}#${bot.user.discriminator} (${bot.user.id})`);
     console.log(`https://discord.com/api/oauth2/authorize?client_id=${bot.application.id}&permissions=378225888320&scope=bot`);
 });
 
